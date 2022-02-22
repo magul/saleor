@@ -1130,46 +1130,42 @@ def filter_headers(
 
 
 def generate_api_call_payload(request, response):
-    content_length = int(request.headers.get("Content-Length", 0))
     limit = settings.REPORTER_MAX_PAYLOAD_SIZE
-    if request.POST:
-        request_content = json.dumps(dict(request.POST))
-    else:
-        try:
-            request_content = request.body.decode("utf-8")
-        except ValueError:
-            request_content = ""
-    request_headers = JsonTruncHeaders.create(
+    req_headers = JsonTruncHeaders.create(
         filter_headers(dict(request.headers)), limit // 8
     )
-    response_headers = JsonTruncHeaders.create(
+    resp_headers = JsonTruncHeaders.create(
         filter_headers(dict(response.headers)), limit // 8
     )
-    request_body = JsonTruncText.create(request_content, limit // 4)
-    limit -= (
-        request_headers.byte_size + response_headers.byte_size + request_body.byte_size
-    )
-    response_body = JsonTruncText.create(
-        response.content.decode(response.charset), limit
-    )
-    request_id = getattr(request, "request_uuid", None)
-    payload = {
-        "request_id": str(request_id) if request_id else str(uuid.uuid4()),
-        "request_time": request.request_time.timestamp(),
-        "request_headers": asdict(request_headers),
-        "request_body": asdict(request_body),
-        "request_content_length": content_length,
-        "response_status_code": response.status_code,
-        "response_reason_phrase": response.reason_phrase,
-        "response_headers": asdict(response_headers),
-        "response_content": asdict(response_body),
+    if request.POST:
+        req_body = JsonTruncText.create(request.POST.urlencode(), limit // 4)
+    else:
+        try:
+            req_body = JsonTruncText.create(request.body.decode("utf-8"), limit // 4)
+        except ValueError:
+            req_body = JsonTruncText()
+    limit -= req_headers.byte_size + resp_headers.byte_size + req_body.byte_size
+    resp_body = JsonTruncText.create(response.content.decode(response.charset), limit)
+    req_data = {
+        "id": str(getattr(request, "request_uuid", uuid.uuid4())),
+        "time": request.request_time.timestamp(),
+        "headers": asdict(req_headers),
+        "body": asdict(req_body),
+        "contentLength": int(request.headers.get("Content-Length", 0)),
     }
+    resp_data = {
+        "headers": asdict(resp_headers),
+        "body": asdict(resp_body),
+        "statusCode": response.status_code,
+        "reasonPhrase": response.reason_phrase,
+    }
+    app_data = {}
     if getattr(request, "app", None):
-        payload["saleor_app"] = {
-            "saleor_app_id": graphene.Node.to_global_id("App", request.app.id),
+        app_data = {
+            "id": graphene.Node.to_global_id("App", request.app.id),
             "name": request.app.name,
         }
-    return json.dumps([payload])
+    return json.dumps([{"request": req_data, "response": resp_data, "app": app_data}])
 
 
 def generate_event_delivery_attempt_payload(
@@ -1177,50 +1173,50 @@ def generate_event_delivery_attempt_payload(
     next_retry: Optional["datetime"] = None,
 ):
     limit = settings.REPORTER_MAX_PAYLOAD_SIZE
+    req_headers, resp_headers = JsonTruncHeaders(), JsonTruncHeaders()
     try:
-        request_headers = JsonTruncHeaders.create(
+        req_headers = JsonTruncHeaders.create(
             json.loads(attempt.request_headers), limit // 8
         )
-    except (JSONDecodeError, TypeError):
-        request_headers = JsonTruncHeaders()
-    try:
-        response_headers = JsonTruncHeaders.create(
+        resp_headers = JsonTruncHeaders.create(
             json.loads(attempt.response_headers), limit // 8
         )
     except (JSONDecodeError, TypeError):
-        response_headers = JsonTruncHeaders()
-    response_body = JsonTruncText.create(attempt.response or "", limit // 4)
-    limit -= (
-        request_headers.byte_size
-        + response_headers.byte_size
-        + response_headers.byte_size
-    )
-    task_params = {"next_retry": next_retry.timestamp() if next_retry else None}
+        pass
+    resp_body = JsonTruncText.create(attempt.response or "", limit // 4)
+    limit -= req_headers.byte_size + resp_headers.byte_size + resp_body.byte_size
+    delivery_data, webhook_data, app_data = {}, {}, {}
+    if delivery := attempt.delivery:
+        delivery_data["id"] = graphene.Node.to_global_id("EventDelivery", delivery.pk)
+        delivery_data["status"] = delivery.status
+        delivery_data["type"] = delivery.event_type
+        if payload := delivery.payload:
+            delivery_data["payload"] = asdict(
+                JsonTruncText.create(payload.payload, limit)
+            )
+        else:
+            delivery_data["payload"] = asdict(JsonTruncText())
+        if webhook := delivery.webhook:
+            app_data["id"] = graphene.Node.to_global_id("App", webhook.app.pk)
+            app_data["name"] = webhook.app.name
+            webhook_data["id"] = graphene.Node.to_global_id("Webhook", webhook.pk)
+            webhook_data["name"] = webhook.name
+            webhook_data["targetUrl"] = webhook.target_url
     data = {
-        "time": attempt.created_at.timestamp(),
         "id": graphene.Node.to_global_id("EventDeliveryAttempt", attempt.pk),
+        "time": attempt.created_at.timestamp(),
         "duration": attempt.duration,
         "status": attempt.status,
-        "request_headers": asdict(request_headers),
-        "response_headers": asdict(response_headers),
-        "response_body": asdict(response_body),
-        "task_params": task_params,
+        "nextRetry": next_retry.timestamp() if next_retry else None,
+        "request": {
+            "headers": asdict(req_headers),
+        },
+        "response": {
+            "headers": asdict(resp_headers),
+            "body": asdict(resp_body),
+        },
+        "eventDelivery": delivery_data,
+        "webhook": webhook_data,
+        "app": app_data,
     }
-    if delivery := attempt.delivery:
-        data.update(
-            event_id=graphene.Node.to_global_id("EventDelivery", delivery.pk),
-            event_status=delivery.status,
-            event_type=delivery.event_type,
-        )
-        if webhook := delivery.webhook:
-            data.update(
-                app_id=graphene.Node.to_global_id("App", webhook.app.pk),
-                app_name=webhook.app.name,
-                webhook_id=graphene.Node.to_global_id("Webhook", webhook.pk),
-                webhook_name=webhook.name,
-                webhook_target_url=webhook.target_url,
-            )
-        if delivery.payload:
-            payload = JsonTruncText.create(delivery.payload.payload, limit)
-            data["event_payload"] = asdict(payload)
     return json.dumps([data])

@@ -969,31 +969,35 @@ def test_generate_api_call_payload(app, rf):
 
     payload = json.loads(generate_api_call_payload(request, response))[0]
 
-    assert uuid.UUID(payload.pop("request_id"), version=4) == request.request_uuid
+    assert uuid.UUID(payload["request"].pop("id"), version=4) == request.request_uuid
     assert payload == {
-        "request_time": request.request_time.timestamp(),
-        "request_headers": {
+        "request": {
+            "time": request.request_time.timestamp(),
             "headers": {
-                "Content-Length": {"text": "19", "truncated": False},
-                "Content-Type": {"text": "application/json", "truncated": False},
-                "Cookie": {"text": "", "truncated": False},
+                "headers": {
+                    "Content-Length": {"text": "19", "truncated": False},
+                    "Content-Type": {"text": "application/json", "truncated": False},
+                    "Cookie": {"text": "", "truncated": False},
+                },
+                "striped": False,
             },
-            "striped": False,
+            "body": {"text": '{"request": "data"}', "truncated": False},
+            "contentLength": 19,
         },
-        "request_body": {"text": '{"request": "data"}', "truncated": False},
-        "request_content_length": 19,
-        "response_status_code": 200,
-        "response_reason_phrase": "OK",
-        "response_headers": {
+        "response": {
             "headers": {
-                "Content-Type": {"text": "application/json", "truncated": False}
+                "headers": {
+                    "Content-Type": {"text": "application/json", "truncated": False}
+                },
+                "striped": False,
             },
-            "striped": False,
+            "body": {"text": '{"response": "data"}', "truncated": False},
+            "statusCode": 200,
+            "reasonPhrase": "OK",
         },
-        "response_content": {"text": '{"response": "data"}', "truncated": False},
-        "saleor_app": {
+        "app": {
+            "id": graphene.Node.to_global_id("App", app.pk),
             "name": "Sample app objects",
-            "saleor_app_id": graphene.Node.to_global_id("App", app.pk),
         },
     }
 
@@ -1011,11 +1015,11 @@ def test_generate_api_call_payload_from_request_with_non_utf8_body(app, rf):
 
     payload = json.loads(generate_api_call_payload(request, response))[0]
 
-    assert payload["request_body"]["text"] == ""
+    assert payload["request"]["body"] == {"text": "", "truncated": False}
 
 
 def test_generate_api_call_payload_from_post_request(app, rf):
-    request = rf.post("/graphql", data={"request": "data"})
+    request = rf.post("/graphql", {"request": "data", "choices": ("a", "b", "d")})
     request.request_time = datetime(1914, 6, 28, 10, 50, tzinfo=timezone.utc)
     request.app = app
     request.request_uuid = uuid.uuid4()
@@ -1023,7 +1027,10 @@ def test_generate_api_call_payload_from_post_request(app, rf):
 
     payload = json.loads(generate_api_call_payload(request, response))[0]
 
-    assert payload["request_body"]["text"] == '{"request": ["data"]}'
+    assert payload["request"]["body"] == {
+        "text": "request=data&choices=a&choices=b&choices=d",
+        "truncated": False,
+    }
 
 
 def test_generate_api_call_not_from_app_payload(rf):
@@ -1037,7 +1044,7 @@ def test_generate_api_call_not_from_app_payload(rf):
 
     payload = json.loads(generate_api_call_payload(request, response))[0]
 
-    assert "saleor_app" not in payload
+    assert payload["app"] == {}
 
 
 def test_generate_event_delivery_attempt_payload(event_attempt):
@@ -1048,26 +1055,36 @@ def test_generate_event_delivery_attempt_payload(event_attempt):
     payload = json.loads(generate_event_delivery_attempt_payload(event_attempt))[0]
 
     assert payload == {
+        "id": graphene.Node.to_global_id("EventDeliveryAttempt", event_attempt.pk),
         "time": event_attempt.created_at.timestamp(),
         "duration": None,
-        "app_id": graphene.Node.to_global_id("App", app.pk),
-        "app_name": "Sample app objects",
-        "event_id": graphene.Node.to_global_id("EventDelivery", delivery.pk),
-        "event_payload": {
-            "text": '{"payload_key": "payload_value"}',
-            "truncated": False,
-        },
-        "event_status": EventDeliveryStatus.PENDING,
-        "event_type": WebhookEventAsyncType.ANY,
-        "id": graphene.Node.to_global_id("EventDeliveryAttempt", event_attempt.pk),
-        "request_headers": {"headers": {}, "striped": False},
-        "response_body": {"text": "example_response", "truncated": False},
-        "response_headers": {"headers": {}, "striped": False},
         "status": EventDeliveryStatus.PENDING,
-        "task_params": {"next_retry": None},
-        "webhook_id": graphene.Node.to_global_id("Webhook", webhook.pk),
-        "webhook_name": "Simple webhook",
-        "webhook_target_url": "http://www.example.com/test",
+        "nextRetry": None,
+        "request": {
+            "headers": {"headers": {}, "striped": False},
+        },
+        "response": {
+            "headers": {"headers": {}, "striped": False},
+            "body": {"text": "example_response", "truncated": False},
+        },
+        "eventDelivery": {
+            "id": graphene.Node.to_global_id("EventDelivery", delivery.pk),
+            "payload": {
+                "text": '{"payload_key": "payload_value"}',
+                "truncated": False,
+            },
+            "status": EventDeliveryStatus.PENDING,
+            "type": WebhookEventAsyncType.ANY,
+        },
+        "webhook": {
+            "id": graphene.Node.to_global_id("Webhook", webhook.pk),
+            "name": "Simple webhook",
+            "targetUrl": "http://www.example.com/test",
+        },
+        "app": {
+            "id": graphene.Node.to_global_id("App", app.pk),
+            "name": "Sample app objects",
+        },
     }
 
 
@@ -1078,7 +1095,7 @@ def test_generate_event_delivery_attempt_payload_with_next_retry_date(event_atte
             event_attempt, next_retry=next_retry_date
         )
     )[0]
-    assert payload["task_params"]["next_retry"] == next_retry_date.timestamp()
+    assert payload["nextRetry"] == next_retry_date.timestamp()
 
 
 @pytest.mark.parametrize(
