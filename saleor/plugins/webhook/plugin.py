@@ -33,6 +33,7 @@ from ...webhook.payloads import (
 from ..base_plugin import BasePlugin
 from .tasks import (
     _get_webhooks_for_event,
+    o11y_reporter_buffer_event,
     send_webhook_request_async,
     trigger_webhook_sync,
     trigger_webhooks_async,
@@ -392,8 +393,9 @@ class WebhookPlugin(BasePlugin):
         if not self.active:
             return previous_value
         event_type = WebhookEventAsyncType.REPORT_API_CALL
-        api_call_data = generate_api_call_payload(request, response)
-        trigger_webhooks_for_event.delay(event_type, api_call_data)
+        if _get_webhooks_for_event(event_type):
+            api_call_data = generate_api_call_payload(request, response)
+            o11y_reporter_buffer_event(event_type, api_call_data)
 
     def report_event_delivery_attempt(
         self,
@@ -406,7 +408,7 @@ class WebhookPlugin(BasePlugin):
         event_type = WebhookEventAsyncType.REPORT_EVENT_DELIVERY_ATTEMPT
         if _get_webhooks_for_event(event_type):
             attempt_data = generate_event_delivery_attempt_payload(attempt, next_retry)
-            trigger_webhooks_for_event.delay(event_type, attempt_data)
+            o11y_reporter_buffer_event(event_type, attempt_data)
 
     def checkout_created(self, checkout: "Checkout", previous_value: Any) -> Any:
         if not self.active:

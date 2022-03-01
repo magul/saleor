@@ -1,5 +1,7 @@
 import json
 import logging
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from json import JSONDecodeError
@@ -11,7 +13,11 @@ import requests
 from botocore.exceptions import ClientError
 from celery.exceptions import MaxRetriesExceededError, Retry
 from celery.utils.log import get_task_logger
+from django.conf import settings
+from django.core.cache import cache
 from google.cloud import pubsub_v1
+from kombu import Connection
+from kombu.simple import SimpleQueue
 from requests.exceptions import RequestException
 
 from ...celeryconf import app
@@ -306,6 +312,66 @@ def send_webhook_request_async(self, event_delivery_id):
         delivery_update(delivery=delivery, status=EventDeliveryStatus.FAILED)
     report_event_delivery_attempt(delivery.event_type, attempt)
     clear_successful_delivery(delivery)
+
+
+@contextmanager
+def o11y_reporter_queue(event_type: str) -> Generator[SimpleQueue, None, None]:
+    queue_name = cache.make_key(f"{settings.REPORTER_QUEUE_PREFIX}.{event_type}")
+    with Connection(settings.REPORTER_BROKER_URL) as conn:
+        with conn.SimpleQueue(queue_name) as queue:
+            yield queue
+
+
+def o11y_reporter_queue_name(event_type: str):
+    return cache.make_key(f"{settings.REPORTER_QUEUE_PREFIX}.{event_type}")
+
+
+def o11y_reporter_buffer_event(event_type: str, data: dict):
+    with o11y_reporter_queue(event_type) as queue:
+        queue.put(data)
+
+
+def o11y_reporter_report_batch(event_type) -> int:
+    if event_type not in [
+        WebhookEventAsyncType.REPORT_EVENT_DELIVERY_ATTEMPT,
+        WebhookEventAsyncType.REPORT_API_CALL,
+    ]:
+        raise ValueError(f"Unsupported event_type value: {event_type}")
+    messages = []
+    with o11y_reporter_queue(event_type) as queue:
+        for _ in range(settings.REPORTER_BATCH_SIZE):
+            try:
+                messages.append(queue.get(block=True, timeout=10))
+            except queue.Empty:
+                break
+        if not messages:
+            return 0
+        domain = Site.objects.get_current().domain
+        data = [msg.decode() for msg in messages]
+        for webhook in _get_webhooks_for_event(event_type):
+            try:
+                send_webhook_using_scheme_method(
+                    webhook.target_url,
+                    domain,
+                    webhook.secret_key,
+                    event_type,
+                    json.dumps(data, indent=2),
+                )
+            except ValueError:
+                pass
+        for msg in messages:
+            msg.ack()
+    return len(messages)
+
+
+@app.task
+def o11y_reporter_report_api_calls():
+    o11y_reporter_report_batch(WebhookEventAsyncType.REPORT_API_CALL)
+
+
+@app.task
+def o11y_reporter_report_event_delivery_attempts_task():
+    o11y_reporter_report_batch(WebhookEventAsyncType.REPORT_EVENT_DELIVERY_ATTEMPT)
 
 
 def send_webhook_request_sync(app_name, delivery):
