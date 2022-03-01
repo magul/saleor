@@ -503,6 +503,16 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", None)
+# Celery SQS
+
+CELERY_QUEUE_PREFIX = os.environ.get("CELERY_QUEUE_PREFIX", None)
+CELERY_QUEUE_REGION = os.environ.get("CELERY_QUEUE_REGION", "us-east-1")
+if CELERY_QUEUE_PREFIX:
+    CELERY_BROKER_TRANSPORT_OPTIONS = {
+        "queue_name_prefix": CELERY_QUEUE_PREFIX,
+        "region": CELERY_QUEUE_REGION,
+    }
+
 
 CELERY_BEAT_SCHEDULE = {
     "delete-empty-allocations": {
@@ -529,14 +539,30 @@ CELERY_BEAT_SCHEDULE = {
         "task": "saleor.giftcard.tasks.deactivate_expired_cards_task",
         "schedule": crontab(hour=0, minute=0),
     },
+    "o11y_reporter-report-api-calls": {
+        "task": "saleor.plugins.webhook.tasks.o11y_reporter_report_api_calls",
+        "schedule": timedelta(seconds=20),
+    },
+    "o11y_reporter-report-event-delivery-attempts": {
+        "task": "saleor.plugins.webhook.tasks.o11y_reporter_report_event_delivery_attempts_task",
+        "schedule": timedelta(seconds=20),
+    },
 }
 
 EVENT_PAYLOAD_DELETE_PERIOD = timedelta(
     seconds=parse(os.environ.get("EVENT_PAYLOAD_DELETE_PERIOD", "14 days"))
 )
-REPORTER_ACTIVE = get_bool_from_env("REPORTER_ACTIVE", False)
+
+REPORTER_BROKER_URL = os.environ.get("REPORTER_BROKER_URL", None)
+REPORTER_ACTIVE = (
+    get_bool_from_env("REPORTER_ACTIVE", False) if REPORTER_BROKER_URL else False
+)
+REPORTER_QUEUE_PREFIX = "o11y_reporter_queue"
 REPORTER_LOG_ALL_API_CALLS = get_bool_from_env("REPORTER_LOG_ALL_API_CALLS", False)
-REPORTER_MAX_PAYLOAD_SIZE = int(os.environ.get("REPORTER_MAX_PAYLOAD_SIZE", 1024 * 250))
+REPORTER_MAX_PAYLOAD_SIZE = int(os.environ.get("REPORTER_MAX_PAYLOAD_SIZE", 1024 * 190))
+REPORTER_QUEUE_MAX_LENGTH = 1000
+REPORTER_BATCH_SIZE = int(os.environ.get("REPORTER_BATCH_SIZE", 100))
+
 
 # Change this value if your application is running behind a proxy,
 # e.g. HTTP_CF_Connecting_IP for Cloudflare or X_FORWARDED_FOR
