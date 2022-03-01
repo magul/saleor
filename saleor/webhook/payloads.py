@@ -1159,13 +1159,13 @@ def generate_api_call_payload(request, response):
         "statusCode": response.status_code,
         "reasonPhrase": response.reason_phrase,
     }
-    app_data = {}
-    if getattr(request, "app", None):
+    app_data = None
+    if getattr(request, "app", False):
         app_data = {
             "id": graphene.Node.to_global_id("App", request.app.id),
             "name": request.app.name,
         }
-    return json.dumps([{"request": req_data, "response": resp_data, "app": app_data}])
+    return {"request": req_data, "response": resp_data, "app": app_data}
 
 
 def generate_event_delivery_attempt_payload(
@@ -1202,7 +1202,7 @@ def generate_event_delivery_attempt_payload(
             webhook_data["id"] = graphene.Node.to_global_id("Webhook", webhook.pk)
             webhook_data["name"] = webhook.name
             webhook_data["targetUrl"] = webhook.target_url
-    data = {
+    return {
         "id": graphene.Node.to_global_id("EventDeliveryAttempt", attempt.pk),
         "time": attempt.created_at.timestamp(),
         "duration": attempt.duration,
@@ -1219,4 +1219,3 @@ def generate_event_delivery_attempt_payload(
         "webhook": webhook_data,
         "app": app_data,
     }
-    return json.dumps([data])
