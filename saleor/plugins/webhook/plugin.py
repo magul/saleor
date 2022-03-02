@@ -31,13 +31,12 @@ from ...webhook.payloads import (
     generate_translation_payload,
 )
 from ..base_plugin import BasePlugin
+from .observability import buffer_event
 from .tasks import (
     _get_webhooks_for_event,
-    o11y_reporter_buffer_event,
     send_webhook_request_async,
     trigger_webhook_sync,
     trigger_webhooks_async,
-    trigger_webhooks_for_event,
 )
 from .utils import (
     delivery_update,
@@ -395,7 +394,7 @@ class WebhookPlugin(BasePlugin):
         event_type = WebhookEventAsyncType.REPORT_API_CALL
         if _get_webhooks_for_event(event_type):
             api_call_data = generate_api_call_payload(request, response)
-            o11y_reporter_buffer_event(event_type, api_call_data)
+            buffer_event(event_type, api_call_data)
 
     def report_event_delivery_attempt(
         self,
@@ -408,7 +407,7 @@ class WebhookPlugin(BasePlugin):
         event_type = WebhookEventAsyncType.REPORT_EVENT_DELIVERY_ATTEMPT
         if _get_webhooks_for_event(event_type):
             attempt_data = generate_event_delivery_attempt_payload(attempt, next_retry)
-            o11y_reporter_buffer_event(event_type, attempt_data)
+            buffer_event(event_type, attempt_data)
 
     def checkout_created(self, checkout: "Checkout", previous_value: Any) -> Any:
         if not self.active:
