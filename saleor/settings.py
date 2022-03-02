@@ -539,12 +539,8 @@ CELERY_BEAT_SCHEDULE = {
         "task": "saleor.giftcard.tasks.deactivate_expired_cards_task",
         "schedule": crontab(hour=0, minute=0),
     },
-    "o11y_reporter-report-api-calls": {
-        "task": "saleor.plugins.webhook.tasks.o11y_reporter_report_api_calls",
-        "schedule": timedelta(seconds=20),
-    },
-    "o11y_reporter-report-event-delivery-attempts": {
-        "task": "saleor.plugins.webhook.tasks.o11y_reporter_report_event_delivery_attempts_task",
+    "observability-report-all-events": {
+        "task": "saleor.plugins.webhook.tasks.observability_report_all_events_task",
         "schedule": timedelta(seconds=20),
     },
 }
@@ -553,15 +549,25 @@ EVENT_PAYLOAD_DELETE_PERIOD = timedelta(
     seconds=parse(os.environ.get("EVENT_PAYLOAD_DELETE_PERIOD", "14 days"))
 )
 
-REPORTER_BROKER_URL = os.environ.get("REPORTER_BROKER_URL", None)
-REPORTER_ACTIVE = (
-    get_bool_from_env("REPORTER_ACTIVE", False) if REPORTER_BROKER_URL else False
+OBSERVABILITY_BROKER_URL = os.environ.get("OBSERVABILITY_BROKER_URL", None)
+OBSERVABILITY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 3600}
+OBSERVABILITY_ACTIVE = (
+    get_bool_from_env("OBSERVABILITY_ACTIVE", False)
+    if OBSERVABILITY_BROKER_URL
+    else False
 )
-REPORTER_QUEUE_PREFIX = "o11y_reporter_queue"
-REPORTER_LOG_ALL_API_CALLS = get_bool_from_env("REPORTER_LOG_ALL_API_CALLS", False)
-REPORTER_MAX_PAYLOAD_SIZE = int(os.environ.get("REPORTER_MAX_PAYLOAD_SIZE", 1024 * 190))
-REPORTER_QUEUE_MAX_LENGTH = 1000
-REPORTER_BATCH_SIZE = int(os.environ.get("REPORTER_BATCH_SIZE", 100))
+OBSERVABILITY_REPORT_ALL_API_CALLS = get_bool_from_env(
+    "OBSERVABILITY_REPORT_ALL_API_CALLS", False
+)
+OBSERVABILITY_MAX_PAYLOAD_SIZE = int(
+    os.environ.get("OBSERVABILITY_MAX_PAYLOAD_SIZE", 1024 * 190)
+)
+OBSERVABILITY_QUEUE_MAX_LENGTH = int(
+    os.environ.get("OBSERVABILITY_QUEUE_MAX_LENGTH", 1000)
+)
+OBSERVABILITY_QUEUE_BATCH_SIZE = int(
+    os.environ.get("OBSERVABILITY_QUEUE_BATCH_SIZE", 100)
+)
 
 
 # Change this value if your application is running behind a proxy,

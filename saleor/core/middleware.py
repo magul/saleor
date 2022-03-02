@@ -143,8 +143,9 @@ def api_reporter(get_response):
     def _report(request):
         response = get_response(request)
         if request.path == API_PATH and request.method == "POST":
-            if settings.REPORTER_ACTIVE and (
-                settings.REPORTER_LOG_ALL_API_CALLS or getattr(request, "app", None)
+            if settings.OBSERVABILITY_ACTIVE and (
+                settings.OBSERVABILITY_REPORT_ALL_API_CALLS
+                or getattr(request, "app", None)
             ):
                 request.request_uuid = uuid.uuid4()
                 request.plugins.report_api_call(request, response)

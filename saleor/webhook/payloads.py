@@ -1130,7 +1130,7 @@ def filter_headers(
 
 
 def generate_api_call_payload(request, response):
-    limit = settings.REPORTER_MAX_PAYLOAD_SIZE
+    limit = settings.OBSERVABILITY_MAX_PAYLOAD_SIZE
     req_headers = JsonTruncHeaders.create(
         filter_headers(dict(request.headers)), limit // 8
     )
@@ -1172,7 +1172,7 @@ def generate_event_delivery_attempt_payload(
     attempt: EventDeliveryAttempt,
     next_retry: Optional["datetime"] = None,
 ):
-    limit = settings.REPORTER_MAX_PAYLOAD_SIZE
+    limit = settings.OBSERVABILITY_MAX_PAYLOAD_SIZE
     req_headers, resp_headers = JsonTruncHeaders(), JsonTruncHeaders()
     try:
         req_headers = JsonTruncHeaders.create(
