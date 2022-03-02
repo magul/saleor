@@ -44,10 +44,14 @@ from ..warehouse.management import allocate_preorders, allocate_stocks
 from ..warehouse.reservations import is_reservation_enabled
 from . import AddressType
 from .checkout_cleaner import clean_checkout_payment, clean_checkout_shipping
+from .fetch import (
+    CheckoutInfo,
+    CheckoutLineInfo,
+    fetch_checkout_info,
+    fetch_checkout_lines,
+)
 from .models import Checkout
 from .utils import get_voucher_for_checkout_info
-from .fetch import CheckoutInfo, CheckoutLineInfo, fetch_checkout_info, \
-fetch_checkout_lines
 
 if TYPE_CHECKING:
     from ..app.models import App
@@ -769,12 +773,17 @@ def complete_checkout(
 
     return order, action_required, action_data
 
+
 @traced_atomic_transaction()
-def _create_order_from_checkout(checkout: Checkout, discounts: List["DiscountInfo"], manager: "PluginsManager", user: User, app: Optional["App"]):
+def _create_order_from_checkout(
+    checkout: Checkout,
+    discounts: List["DiscountInfo"],
+    manager: "PluginsManager",
+    user: User,
+    app: Optional["App"],
+):
     checkout_lines, _ = fetch_checkout_lines(checkout)
-    checkout_info = fetch_checkout_info(
-        checkout, checkout_lines, discounts, manager
-    )
+    checkout_info = fetch_checkout_info(checkout, checkout_lines, discounts, manager)
     site_settings = Site.objects.get_current().settings
     order_data = _prepare_order_data(
         manager=manager,
@@ -795,9 +804,17 @@ def _create_order_from_checkout(checkout: Checkout, discounts: List["DiscountInf
     )
 
 
-def create_order_from_checkout(checkout: Checkout, discounts: List["DiscountInfo"], manager: "PluginsManager", user: User, app: Optional["App"])->Order:
+def create_order_from_checkout(
+    checkout: Checkout,
+    discounts: List["DiscountInfo"],
+    manager: "PluginsManager",
+    user: User,
+    app: Optional["App"],
+) -> Order:
     try:
-        return _create_order_from_checkout(checkout=checkout, discounts=discounts, manager=manager, user=user, app=app)
+        order = _create_order_from_checkout(
+            checkout=checkout, discounts=discounts, manager=manager, user=user, app=app
+        )
     except InsufficientStock as e:
         error = prepare_insufficient_stock_checkout_validation_error(e)
         # FIXME release voucher usage here.
@@ -815,3 +832,5 @@ def create_order_from_checkout(checkout: Checkout, discounts: List["DiscountInfo
             "Unable to calculate taxes - %s" % str(tax_error),
             code=CheckoutErrorCode.TAX_ERROR.value,
         )
+    checkout.delete()
+    return order
