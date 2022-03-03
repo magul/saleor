@@ -131,7 +131,7 @@ class ProductOrderField(graphene.Enum):
     TYPE = ["product_type__name", "name", "slug"]
     PUBLISHED = ["is_published", "name", "slug"]
     PUBLICATION_DATE = ["publication_date", "name", "slug"]
-    COLLECTION = ["sort_order"]
+    COLLECTION = ["collectionproduct__sort_order"]
     RATING = ["rating", "name", "slug"]
 
     @property
