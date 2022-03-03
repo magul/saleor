@@ -31,7 +31,7 @@ from ...webhook.payloads import (
     generate_translation_payload,
 )
 from ..base_plugin import BasePlugin
-from .observability import buffer_event
+from .observability import observability_buffer_event
 from .tasks import (
     _get_webhooks_for_event,
     send_webhook_request_async,
@@ -394,7 +394,7 @@ class WebhookPlugin(BasePlugin):
         event_type = WebhookEventAsyncType.REPORT_API_CALL
         if _get_webhooks_for_event(event_type):
             api_call_data = generate_api_call_payload(request, response)
-            buffer_event(event_type, api_call_data)
+            observability_buffer_event(event_type, api_call_data)
 
     def report_event_delivery_attempt(
         self,
@@ -407,7 +407,7 @@ class WebhookPlugin(BasePlugin):
         event_type = WebhookEventAsyncType.REPORT_EVENT_DELIVERY_ATTEMPT
         if _get_webhooks_for_event(event_type):
             attempt_data = generate_event_delivery_attempt_payload(attempt, next_retry)
-            buffer_event(event_type, attempt_data)
+            observability_buffer_event(event_type, attempt_data)
 
     def checkout_created(self, checkout: "Checkout", previous_value: Any) -> Any:
         if not self.active:

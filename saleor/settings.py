@@ -539,10 +539,6 @@ CELERY_BEAT_SCHEDULE = {
         "task": "saleor.giftcard.tasks.deactivate_expired_cards_task",
         "schedule": crontab(hour=0, minute=0),
     },
-    "observability-report-all-events": {
-        "task": "saleor.plugins.webhook.tasks.observability_report_all_events_task",
-        "schedule": timedelta(seconds=20),
-    },
 }
 
 EVENT_PAYLOAD_DELETE_PERIOD = timedelta(
@@ -551,6 +547,9 @@ EVENT_PAYLOAD_DELETE_PERIOD = timedelta(
 
 OBSERVABILITY_BROKER_URL = os.environ.get("OBSERVABILITY_BROKER_URL", None)
 OBSERVABILITY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 3600}
+OBSERVABILITY_REPORT_PERIOD = timedelta(
+    seconds=parse(os.environ.get("OBSERVABILITY_REPORT_PERIOD", "20 seconds"))
+)
 OBSERVABILITY_ACTIVE = (
     get_bool_from_env("OBSERVABILITY_ACTIVE", False)
     if OBSERVABILITY_BROKER_URL
@@ -568,7 +567,11 @@ OBSERVABILITY_QUEUE_MAX_LENGTH = int(
 OBSERVABILITY_QUEUE_BATCH_SIZE = int(
     os.environ.get("OBSERVABILITY_QUEUE_BATCH_SIZE", 100)
 )
-
+if OBSERVABILITY_ACTIVE:
+    CELERY_BEAT_SCHEDULE["observability-report-all-events"] = {
+        "task": "saleor.plugins.webhook.tasks.observability_report_all_events_task",
+        "schedule": OBSERVABILITY_REPORT_PERIOD,
+    }
 
 # Change this value if your application is running behind a proxy,
 # e.g. HTTP_CF_Connecting_IP for Cloudflare or X_FORWARDED_FOR

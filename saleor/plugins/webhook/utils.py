@@ -234,7 +234,7 @@ def report_event_delivery_attempt(
     attempt: "EventDeliveryAttempt",
     next_retry: Optional[datetime] = None,
 ):
-    if event_type not in WebhookEventAsyncType.REPORTER_EVENTS:
+    if event_type not in WebhookEventAsyncType.OBSERVABILITY_EVENTS:
         get_plugins_manager().report_event_delivery_attempt(attempt, next_retry)
 
 

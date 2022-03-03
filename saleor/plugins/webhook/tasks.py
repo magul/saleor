@@ -9,6 +9,7 @@ from urllib.parse import urlparse, urlunparse
 import boto3
 import requests
 from botocore.exceptions import ClientError
+from celery import group
 from celery.exceptions import MaxRetriesExceededError, Retry
 from celery.utils.log import get_task_logger
 from django.conf import settings
@@ -310,32 +311,41 @@ def send_webhook_request_async(self, event_delivery_id):
     clear_successful_delivery(delivery)
 
 
+def send_observability_webhook_request(
+    webhook: Webhook, domain: str, event_type: str, payloads: list
+):
+    scheme = urlparse(webhook.target_url).scheme.lower()
+    if scheme in [WebhookSchemes.HTTP, WebhookSchemes.HTTPS]:
+        send_webhook_using_scheme_method(
+            webhook.target_url,
+            domain,
+            webhook.secret_key,
+            event_type,
+            json.dumps(payloads),
+        )
+    elif scheme in [WebhookSchemes.AWS_SQS, WebhookSchemes.GOOGLE_CLOUD_PUBSUB]:
+        for payload in payloads:
+            send_webhook_using_scheme_method(
+                webhook.target_url,
+                domain,
+                webhook.secret_key,
+                event_type,
+                json.dumps(payload),
+            )
+
+
 @app.task
-def observability_report_events_batch_task(event_type: str):
-    if event_type not in [
-        WebhookEventAsyncType.REPORT_EVENT_DELIVERY_ATTEMPT,
-        WebhookEventAsyncType.REPORT_API_CALL,
-    ]:
-        raise ValueError(f"Unsupported event_type value: {event_type}")
-    messages = []
+def observability_report_events_task(event_type: str, batch_size: int):
+    if event_type not in WebhookEventAsyncType.OBSERVABILITY_EVENTS:
+        raise ValueError(f"Observability - unsupported event_type value: {event_type}")
     with get_buffer(event_type) as buffer:
-        for _ in range(settings.OBSERVABILITY_QUEUE_BATCH_SIZE):
-            try:
-                messages.append(buffer.get(block=True, timeout=10))
-            except buffer.Empty:
-                break
-        if not messages:
+        messages = buffer.get_messages_batch(batch_size)
+        if len(messages) == 0:
             return 0
         domain = Site.objects.get_current().domain
-        data = json.dumps([msg.decode() for msg in messages], indent=2)
+        payloads = [msg.decode() for msg in messages]
         for webhook in _get_webhooks_for_event(event_type):
-            try:
-                send_webhook_using_scheme_method(
-                    webhook.target_url, domain, webhook.secret_key, event_type, data
-                )
-            except ValueError:
-                # TODO logging
-                pass
+            send_observability_webhook_request(webhook, domain, event_type, payloads)
         for msg in messages:
             msg.ack()
     return len(messages)
@@ -343,10 +353,19 @@ def observability_report_events_batch_task(event_type: str):
 
 @app.task
 def observability_report_all_events_task():
-    observability_report_events_batch_task.delay(WebhookEventAsyncType.REPORT_API_CALL)
-    observability_report_events_batch_task.delay(
-        WebhookEventAsyncType.REPORT_EVENT_DELIVERY_ATTEMPT
-    )
+    tasks = []
+    for event_type in WebhookEventAsyncType.OBSERVABILITY_EVENTS:
+        with get_buffer(event_type) as buffer:
+            tasks.extend(
+                [
+                    observability_report_events_task.s(event_type, buffer.BATCH_SIZE)
+                    for _ in range(buffer.batches_count())
+                ]
+            )
+    if tasks:
+        group(tasks).apply_async(
+            expires=settings.OBSERVABILITY_REPORT_PERIOD.total_seconds()
+        )
 
 
 def send_webhook_request_sync(app_name, delivery):
