@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from django.db.models import Q
 from django.utils import timezone
 
@@ -69,6 +71,13 @@ def filter_by_id(object_type):
         if not value:
             return qs
         _, obj_pks = resolve_global_ids_to_primary_keys(value, object_type)
-        return qs.filter(id__in=obj_pks)
+        pks = []
+        old_pks = []
+        for pk in obj_pks:
+            try:
+                pks.append(UUID(pk))
+            except ValueError:
+                old_pks.append(pk)
+        return qs.filter(Q(id__in=pks) | (Q(use_old_id=True) & Q(number__in=old_pks)))
 
     return inner
